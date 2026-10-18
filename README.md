@@ -36,7 +36,15 @@ Git branch:
     assumed valuable until deliberately deleted
 
 Rim node:
-    assumed temporary until selected or purged
+    assumed temporary until deliberately kept or purged
+```
+
+```text
+Git commit:
+    assumed fixed until deliberately amended
+
+Rim node:
+    assumed editable until a new node is deliberately spawned
 ```
 
 A Rim tree belongs to one problem. Its nodes are competing solutions or
@@ -61,7 +69,7 @@ flowchart LR
         C[Node C]
         A1[Node A.1]
         A2[Node A.2]
-        W[Selected node]
+        W[Chosen node]
 
         R0 --> A
         R0 --> B
@@ -76,17 +84,17 @@ flowchart LR
 ```
 
 Git records durable progress between problems. Rim holds the temporary search
-inside one problem. After the user selects a result, the Rim tree can disappear
+inside one problem. After the user chooses a result, the Rim tree can disappear
 without entering public Git history.
 
 ## The model
 
 Rim nodes are editable. The active node consists of its consolidated state plus
-hot workspace changes:
+hot project changes:
 
 ```text
 consolidated node state
-    + hot workspace changes
+    + hot project changes
     = current visible state
 ```
 
@@ -95,24 +103,43 @@ normal Git commit or another Rim node.
 
 `rim spawn` creates child nodes from the active node. Two or more children form
 sub-branches of the same solution search. A child keeps the exact parent state
-from which it spawned.
+from which it spawned. Hot changes can be punched into the active node or
+captured in a newly spawned child, leaving the parent unchanged.
+
+Rim does not require a separately named session. Each node has an identifier
+that is unique within the repository. In a Git repository, each Git commit can
+anchor its own Rim tree. The first `rim spawn` at a commit implicitly creates a
+base node from that commit before creating the child. The current Git commit
+determines the applicable Rim root and its active node. If the commit changes,
+Rim uses the root for the new commit or creates one on the next spawn. Outside
+Git, the first spawn creates the base node from the current project state.
+`rim init` can create the same base node explicitly without spawning a child.
+
+Rim copies each base state into its own `.rim/` storage. A Git commit ID records
+where a root came from, but the root does not depend on that Git object
+remaining available. Rim implements its Git-style object storage directly and
+does not use Git to manage Rim objects. Git does not store Rim state, and Rim
+does not use Git status as its own status.
 
 ## Proposed command set
 
 ```bash
+# Explicitly create a base node for the current Git commit or project state
+rim init
+
 # Create child nodes from the active node
 rim spawn [--tag <name>] [--fan-out <n>]
 
 # Consolidate hot changes into the active node
 rim punch [-m <message>]
 
-# Make another node active
+# Switch to another node
 rim switch <node-id>
 
 # Delete one node and all descendants
 rim purge <node-id>
 
-# Keep the active node and delete all other nodes
+# Keep the active node and its ancestors; delete all other nodes
 rim purge --all
 ```
 
@@ -126,9 +153,11 @@ rim diff <node-id> [<other-node-id>] [path...] [--json]
 
 ## Scope
 
-Rim manages temporary versions and the workspaces that use them. It does not
+Rim manages temporary versions in the current project directory. It does not
 prompt agents, run LLM loops, evaluate solution quality, or decide which node
-wins. In a Git project, normal Git commands still create the durable commit.
+wins. Rim has no staging layer: `punch` and `spawn` save changes in Rim, while
+Git staging and commits remain independent. A state can therefore be saved in
+Rim, Git, both, or neither.
 
 Rim also works without an enclosing Git repository by storing its own temporary
 node snapshots. This mode provides solution-tree management, not a replacement
