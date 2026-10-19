@@ -1,4 +1,4 @@
-# rim
+# Rim
 
 > Rim is the ethereal version manager that sits between your agent and the next git commit.
 

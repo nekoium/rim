@@ -3,28 +3,23 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
-    sync::atomic::{AtomicU64, Ordering},
 };
-
-static NEXT: AtomicU64 = AtomicU64::new(0);
+use tempfile::TempDir;
 
 struct Project {
     path: PathBuf,
+    _temp: TempDir,
 }
 impl Project {
     fn new(name: &str) -> Self {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join("rim-test-work");
-        fs::create_dir_all(&root).unwrap();
-        let path = root.join(format!(
-            "{name}-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).unwrap();
-        Self { path }
+        // Standalone fixtures must live outside this repository so they cannot
+        // discover the repository's own .rim directory as an ancestor.
+        let temp = tempfile::Builder::new()
+            .prefix(&format!("rim-{name}-"))
+            .tempdir()
+            .unwrap();
+        let path = temp.path().to_path_buf();
+        Self { path, _temp: temp }
     }
     fn rim(&self, args: &[&str]) -> Output {
         let mut c = Command::new(env!("CARGO_BIN_EXE_rim"));
@@ -53,11 +48,6 @@ impl Project {
             .unwrap()
     }
 }
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 fn write(root: &Path, name: &str, text: &str) {
     let p = root.join(name);
     if let Some(d) = p.parent() {
@@ -67,6 +57,38 @@ fn write(root: &Path, name: &str, text: &str) {
 }
 fn data(v: &Value) -> &Value {
     &v["data"]
+}
+
+#[test]
+fn help_explains_the_model_and_destructive_scope() {
+    let help = Command::new(env!("CARGO_BIN_EXE_rim"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help.contains("It does not create Git branches or commits"));
+    assert!(help.contains("rim punch    Update the active node in place"));
+    assert!(help.contains("rim spawn    Capture changes in a new child candidate"));
+    assert!(help.contains("Delete an inactive node and its complete subtree"));
+
+    let prune = Command::new(env!("CARGO_BIN_EXE_rim"))
+        .args(["prune", "--help"])
+        .output()
+        .unwrap();
+    assert!(prune.status.success());
+    let prune = String::from_utf8(prune.stdout).unwrap();
+    assert!(prune.contains("including its ancestors, siblings, and descendants"));
+    assert!(prune.contains("remove every other root in the repository scope"));
+
+    let switch = Command::new(env!("CARGO_BIN_EXE_rim"))
+        .args(["switch", "--help"])
+        .output()
+        .unwrap();
+    assert!(switch.status.success());
+    let switch = String::from_utf8(switch.stdout).unwrap();
+    assert!(switch.contains("refuses to discard hot changes"));
+    assert!(switch.contains("Git to change HEAD"));
 }
 
 #[test]

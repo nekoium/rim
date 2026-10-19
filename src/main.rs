@@ -19,54 +19,118 @@ use std::{
 #[command(
     name = "rim",
     version,
-    about = "Temporary solution trees for AI-assisted development"
+    about = "Temporary solution trees for AI-assisted development",
+    long_about = "Temporary solution trees for AI-assisted development.\n\nRim stores editable candidate solutions between your working files and the next Git commit. It does not create Git branches or commits. The active node's saved state plus hot workspace changes is the state visible in your project.",
+    after_long_help = "HOW CHANGES ARE SAVED:\n  rim punch    Update the active node in place\n  rim spawn    Capture changes in a new child candidate\n\nTYPICAL WORKFLOW:\n  rim spawn --tag approach-a\n  # edit files\n  rim punch -m \"working implementation\"\n  rim spawn --tag variant --fan-out 3\n  rim tree\n  rim switch <node-id>\n  rim prune\n  git add . && git commit\n\nRun 'rim help <command>' for command-specific details."
 )]
 struct Cli {
-    #[arg(long, global = true, help = "Emit the versioned JSON result envelope")]
+    #[arg(
+        long,
+        global = true,
+        help = "Emit a versioned JSON result envelope; never prompt"
+    )]
     json: bool,
     #[command(subcommand)]
     command: Command,
 }
 #[derive(Subcommand)]
 enum Command {
+    #[command(
+        about = "Create the baseline node",
+        long_about = "Create the baseline node without creating a child candidate.\n\nInitialization is optional because the first 'rim spawn' initializes Rim automatically. In Git, the baseline is anchored to the current commit. Outside Git, it captures the current project state.",
+        after_long_help = "EXAMPLES:\n  rim init\n  rim init --new    # start another standalone root"
+    )]
     Init {
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Start another root from the current state (standalone mode only)"
+        )]
         new: bool,
     },
+    #[command(
+        about = "Create child candidates from the active node",
+        long_about = "Create one or more child candidates from the active node.\n\nHot workspace changes are captured in each child while the parent keeps its saved state. One child becomes active immediately. With --fan-out greater than one, Rim creates siblings and leaves the parent active. If necessary, Rim creates the baseline first.",
+        after_long_help = "EXAMPLES:\n  rim spawn --tag first-approach\n  rim spawn --tag variant --fan-out 3"
+    )]
     Spawn {
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Label the new candidate; fan-out labels receive numeric suffixes"
+        )]
         tag: Option<String>,
-        #[arg(long, default_value_t = 1)]
+        #[arg(
+            long,
+            default_value_t = 1,
+            value_name = "COUNT",
+            help = "Create COUNT sibling candidates"
+        )]
         fan_out: u32,
     },
+    #[command(
+        about = "Save hot changes into the active node",
+        long_about = "Save hot workspace changes into the active node.\n\nPunch updates the existing node. It does not create a child, a Git commit, or a Git staging entry."
+    )]
     Punch {
-        #[arg(short = 'm', long)]
+        #[arg(short = 'm', long, help = "Describe this update")]
         message: Option<String>,
     },
+    #[command(
+        about = "Make another node active in the project directory",
+        long_about = "Make another Rim node active and materialize its files in the project directory.\n\nSwitch refuses to discard hot changes; save them first with 'rim punch' or 'rim spawn'. Switching to a root based on another Git commit requires permission to ask Git to change HEAD."
+    )]
     Switch {
+        #[arg(help = "Node to make active")]
         node_id: String,
-        #[arg(long)]
+        #[arg(long, help = "Allow a required Git HEAD change without prompting")]
         yes: bool,
     },
+    #[command(
+        about = "Delete an inactive node and its complete subtree",
+        long_about = "Delete an inactive node and all of its descendants.\n\nRim refuses the operation if the subtree contains the active node. Switch outside that subtree first.",
+        after_long_help = "EXAMPLE:\n  rim purge <rejected-node-id> --yes"
+    )]
     Purge {
+        #[arg(help = "Root node of the subtree to delete")]
         node_id: String,
-        #[arg(long)]
+        #[arg(long, help = "Confirm deletion without prompting")]
         yes: bool,
     },
+    #[command(
+        about = "Keep only the active node and remove other candidates",
+        long_about = "Keep only the active node and remove every other node in the current root, including its ancestors, siblings, and descendants.\n\nWith --all, also remove every other root in the repository scope. This operation requires confirmation.",
+        after_long_help = "EXAMPLES:\n  rim prune --yes\n  rim prune --all --yes"
+    )]
     Prune {
-        #[arg(long)]
+        #[arg(long, help = "Also remove every other root in the repository scope")]
         all: bool,
-        #[arg(long)]
+        #[arg(long, help = "Confirm deletion without prompting")]
         yes: bool,
     },
+    #[command(
+        about = "Show roots, candidate nodes, and the active node",
+        long_about = "Show all Rim roots and candidate nodes, including the current root and its active node. This command does not modify the tree."
+    )]
     Tree,
+    #[command(
+        about = "Show workspace changes relative to a node",
+        long_about = "Compare the current project files with a node's saved state. Without a node ID, use the active node. This is Rim status, independent of the Git index and Git status.",
+        after_long_help = "EXAMPLES:\n  rim status\n  rim status <node-id>"
+    )]
     Status {
+        #[arg(help = "Saved node to compare with the current project files")]
         node_id: Option<String>,
     },
+    #[command(
+        about = "Compare a node with its parent or another node",
+        long_about = "Compare saved Rim node states.\n\nWith one node, compare it with the parent state from which it was spawned. With two nodes, show the first node's changes relative to the second. Optional paths restrict the output.",
+        after_long_help = "EXAMPLES:\n  rim diff <node-id>\n  rim diff <node-id> <other-node-id>\n  rim diff <node-id> -- src tests\n  rim diff <node-id> <other-node-id> -- src tests"
+    )]
     Diff {
+        #[arg(help = "Node whose changes are shown")]
         node_id: String,
+        #[arg(help = "Node to compare against; a non-node value is treated as a path")]
         other_node_id: Option<String>,
-        #[arg(num_args = 0..)]
+        #[arg(num_args = 0.., help = "Paths to include in the comparison")]
         paths: Vec<PathBuf>,
     },
 }
