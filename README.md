@@ -167,11 +167,60 @@ Rim also works without an enclosing Git repository by storing its own temporary
 node snapshots. This mode provides solution-tree management, not a replacement
 for long-term source control.
 
-## Project status
+## Install
 
-Rim is currently in the design stage. The product model is documented in
-[`PRODUCT.md`](PRODUCT.md). Confirmed implementation decisions are documented
-in [`SPECS.md`](SPECS.md).
+Rim requires a current stable Rust toolchain and, for Git-backed projects, the
+`git` executable on `PATH`.
+
+```bash
+cargo build --release
+# Copy target/release/rim (rim.exe on Windows) to a directory on PATH.
+```
+
+Standalone mode does not require Git. Rim creates private storage in `.rim/`
+and excludes it from both Rim snapshots and normal Git tracking.
+
+## Quick start
+
+```bash
+# Explicitly capture the baseline (the first spawn can also do this).
+rim init
+
+# Edit files, then capture those edits in a new active candidate.
+rim spawn --tag first-approach
+
+# Continue editing the same candidate and consolidate it in place.
+rim punch -m "working implementation"
+
+# Create three alternatives without leaving the current node.
+rim spawn --tag variant --fan-out 3
+rim tree
+
+# Inspect and switch using the stable node IDs printed by tree.
+rim status
+rim diff <node-id>
+rim switch <node-id>
+
+# Remove rejected work. Confirmation can be supplied noninteractively.
+rim purge <rejected-node-id> --yes
+rim prune --yes
+```
+
+Add `--json` to any command for a versioned JSON envelope. Confirmation-required
+commands never prompt in JSON mode and require `--yes`.
+
+## Implementation notes
+
+The MVP stores versioned canonical objects as Zstandard-compressed loose
+objects addressed by the BLAKE3 hash of their uncompressed canonical content.
+Directory objects are sorted complete logical trees, so unchanged files and
+subdirectories are shared between snapshots. SQLite stores only mutable root,
+node, active-pointer, and recovery metadata. Switches use a repository lock,
+collision checks, a recorded transaction, and per-path backups before replacing
+managed files.
+
+The product model is documented in [`PRODUCT.md`](PRODUCT.md), and technical
+constraints are documented in [`SPECS.md`](SPECS.md).
 
 ## License
 
