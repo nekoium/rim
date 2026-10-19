@@ -43,13 +43,13 @@ Git branch:
     assumed valuable until deliberately deleted
 
 Rim node:
-    assumed temporary until deliberately kept or purged
+    assumed temporary until deliberately kept or removed
 ```
 
 Rim nodes remain available without becoming normal Git branches. The user can
 inspect a node, switch to it, extend it, or delete its complete subtree.
-The user can keep the active node and its ancestry while purging all other
-attempts.
+The user can purge one rejected subtree or prune all alternatives except the
+active node.
 
 ### What `rim` Is
 
@@ -110,8 +110,8 @@ All nodes in one Rim tree address the same problem. Child nodes test variations
 of a parent solution. They do not represent unrelated project work.
 
 The chosen Rim node becomes the project working state. In Git mode, the user
-records that state with a normal Git commit. The user can then purge the
-remaining Rim tree.
+records that state with a normal Git commit. The user can then prune the
+remaining alternatives.
 
 ### Stacking Git Branches and Rim Trees
 
@@ -242,7 +242,10 @@ Git object. An amend, branch deletion, or Git garbage collection cannot remove
 the stored Rim base or its descendants.
 
 Outside Git, `rim init` or the first `rim spawn` uses the current project state
-as the base node.
+as the base node. If a standalone root already exists, `rim init` reports that
+Rim is initialized. `rim init --new` starts another root from the current
+project state. It requires no hot changes and retains prior roots until the user
+prunes them.
 
 ### One Node Is Active
 
@@ -265,10 +268,21 @@ stored in Rim, Git, both, or neither. Rim therefore determines hot changes by
 comparing the project files with the active Rim node, not by consulting Git's
 staging area.
 
-### Nodes Stay Until Purged
+### Snapshot Boundaries
+
+Rim never stores `.rim/` or `.git/` in a node snapshot. In a Git project, Rim
+applies `.gitignore` rules and can apply additional `.rimignore` rules. A root
+still includes files stored by its origin commit if later ignore rules match
+them. New ignored files do not enter Rim snapshots.
+
+Rim stores symbolic-link targets without following them and preserves the
+executable-file bit. The MVP rejects Git submodules and unsupported special
+files instead of storing them incorrectly.
+
+### Nodes Stay Until Removed
 
 Rim does not require archive, park, freeze, or lifecycle states. Nodes remain in
-the tree until the user purges them.
+the tree until the user purges their subtree or prunes alternatives in bulk.
 
 Rim can report structural status without adding a lifecycle:
 
@@ -288,12 +302,18 @@ The core mutation commands are small and tree-oriented.
 Create a base node without creating a child.
 
 ```bash
-rim init
+rim init [--new]
 ```
 
 In Git mode, the base is anchored to the currently checked-out Git commit. In
 standalone mode, the base captures the current project state. Explicit
-initialization is optional because `rim spawn` performs it when necessary.
+initialization is optional because the first `rim spawn` performs it when
+necessary.
+
+In standalone mode, `rim init` reports an existing current root instead of
+replacing it. `rim init --new` creates another root from the current project
+state. It requires the active node to have no hot changes. Git mode does not use
+`--new` because the current Git commit determines the root.
 
 ### `rim spawn`
 
@@ -335,34 +355,60 @@ Rim materializes the target node in the current project directory. If hot
 changes exist, Rim requires the user to save them first with `rim punch` or
 `rim spawn`.
 
+Before materialization, Rim checks for unmanaged path collisions. Rim records
+enough recovery state to restore the complete old state or finish the complete
+new state after a failed or interrupted switch.
+
 If the target node has a different Git base from the current `HEAD`, Rim warns
-the user and asks for permission to change `HEAD`. If the user declines, Rim
-stops. The user can then change `HEAD` with Git and try again. If Git no longer
-has the target base commit, the MVP refuses the switch. Recovery of a missing
-base commit is a deferred design problem.
+the user and asks whether it can ask Git to change `HEAD`. If the user declines,
+Rim stops. The user can then change `HEAD` with Git and try again. If Git no
+longer has the target base commit, the MVP refuses the switch. Recovery of a
+missing base commit is a deferred design problem.
+
+Rim does not inspect or reject staged changes before this Git operation. It
+invokes Git without force, stash, or reset behavior. Git decides whether the
+change is safe and how its index behaves. If Git fails, Rim reports the Git
+error and does not change its active node. If Git succeeds, Rim materializes
+the target node without staging it. A same-root switch does not change `HEAD`
+or the Git index.
 
 ### `rim purge`
 
-Delete one node and all of its descendants.
+Delete one specified node and all of its descendants.
 
 ```bash
 rim purge <node-id>
 ```
 
-If the subtree contains the active node, Rim refuses the operation. Purging a
-node removes all child nodes and sub-branches below it.
+The node ID is required. If the subtree contains the active node, Rim refuses
+the operation. The user must first switch outside that subtree. Purging removes
+the target node and all child branches below it.
 
-### `rim purge --all`
+### `rim prune`
 
-Keep the active node and its parent lineage, and delete all other nodes.
+Keep only the active node in the current root.
 
 ```bash
-rim purge --all
+rim prune
 ```
 
-Rim retains the path from the base node through the active node. It removes
-siblings, their descendants, and any descendants of the active node. This
-operation requires user confirmation.
+Rim removes every other node in the current root, including ancestors,
+siblings, and descendants of the active node. The active node becomes the sole
+visible root node. The root context retains its origin and independent base
+snapshot. This operation requires confirmation.
+
+### `rim prune --all`
+
+Keep only the active node across the complete repository scope.
+
+```bash
+rim prune --all
+```
+
+Rim removes all other nodes and root contexts. The active root retains its
+origin and independent base snapshot. Rim reports how many nodes and roots it
+will remove and requires confirmation. In noninteractive use, the caller must
+supply an explicit confirmation option such as `--yes`.
 
 ### Read-Only Inspection
 
@@ -378,6 +424,10 @@ rim status [<node-id>] [--json]
 # Compare a node with its parent, or compare two nodes
 rim diff <node-id> [<other-node-id>] [path...] [--json]
 ```
+
+JSON output uses a versioned result envelope and structured errors. JSON and
+noninteractive commands never wait for a prompt. A command that needs
+confirmation requires an explicit confirmation option in these modes.
 
 ---
 
@@ -424,7 +474,7 @@ Git working tree. The user reviews and commits it with normal Git commands:
 
 ```bash
 rim switch redis-json
-rim purge --all
+rim prune
 git diff
 git add .
 git commit -m "Implement application caching"
@@ -477,15 +527,16 @@ flowchart TD
 ```
 
 Rim stores node snapshots in its own content-addressed store or snapshot
-backend. `init`, `spawn`, `punch`, `switch`, and `purge` keep the same
-user-facing behavior as Git mode.
+backend. `init`, `spawn`, `punch`, `switch`, `purge`, and `prune` keep the
+same user-facing behavior as Git mode.
 
 Standalone Rim history is local to the repository scope. It gives the user
 temporary version management while solving a problem. It does not replace
 durable source-control history, remotes, or collaboration.
 
-After `rim purge --all`, the active node and its parent lineage remain. Rejected
-alternatives are removed after confirmation.
+After `rim prune`, only the active node remains in the current root. After
+`rim prune --all`, it is the only node left across the repository scope.
+Rejected alternatives are removed after confirmation.
 
 ---
 
@@ -511,7 +562,7 @@ alternatives are removed after confirmation.
 │ 3. Switch between candidate nodes                            │
 │ 4. Expose node structure, state, and diffs                   │
 │ 5. Keep temporary states outside durable project history     │
-│ 6. Purge one subtree or all nodes outside the active lineage│
+│ 6. Purge one subtree or prune all inactive nodes             │
 └──────────────────────────────┬───────────────────────────────┘
                                │
                 ┌──────────────┴──────────────┐
@@ -550,27 +601,6 @@ Standalone mode needs equivalent behavior without Git worktrees.
 The workspace design must preserve the existing Rim tree semantics. Concurrent
 validation must not turn Rim nodes into normal Git branches.
 
-### Rim Storage Backend
-
-Rim keeps snapshots in a Rim-owned content-addressed store under `.rim/`. It
-does not use the enclosing Git object database and does not invoke Git to
-manage Rim objects. The implementation uses Git's storage principles rather
-than Git's repository ownership or commit model.
-
-The backend must provide:
-
-- complete logical snapshots that do not depend on parent nodes.
-- immutable blobs and directory trees addressed by content hashes.
-- content sharing for unchanged files and directories.
-- efficient replacement of a node with a substantially different snapshot.
-- independent garbage collection.
-- integrity checks and atomic writes.
-- the same node semantics in Git and standalone projects.
-
-Rim node metadata remains separate from immutable snapshot objects. A punch
-moves a stable node identity to a new snapshot. Existing children retain the
-exact parent snapshot from which they spawned.
-
 ### Missing Git Origin Recovery
 
 A Rim root remains valid when Git no longer has its origin commit because Rim
@@ -584,22 +614,11 @@ original provenance.
 
 ---
 
-## 9. Internal Directory Structure
+## 9. Storage Boundary
 
-A possible Rim-owned layout is:
-
-```text
-.rim/
-├── config.json                 # Storage format and runtime settings
-├── state.json                  # Roots, nodes, and active-node metadata
-├── objects/                    # Content-addressed blobs and trees
-├── indexes/                    # Private snapshot indexes
-└── workspaces/                 # Deferred concurrent node workspaces
-```
-
-Rim uses `.rim/` in both Git and standalone projects. Rim must exclude this
-directory from its own snapshots. In a Git project, the user must not commit
-`.rim/` as durable project content.
+Rim keeps all private state under `.rim/` in both Git and standalone projects.
+It excludes this directory from its snapshots and from normal Git tracking.
+Rim storage remains valid without the enclosing Git object database.
 
 ---
 
@@ -610,11 +629,11 @@ directory from its own snapshots. In a Git project, the user must not commit
 3. A punch updates a node instead of adding durable history.
 4. A child records the exact parent state from which it spawned.
 5. One node is active and appears in the current project directory.
-6. Nodes remain available until the user purges them.
-7. Purging a node also purges all descendants.
-8. `rim purge --all` keeps the active node and its parent lineage.
-   The command requires confirmation.
-9. Git stores durable project history. Rim stores ephemeral solution search.
-10. A Git origin identifies provenance but does not store the Rim base.
-11. Git does not store Rim state, and Rim does not store Git status.
-12. Git and standalone modes expose the same Rim tree operations.
+6. Nodes remain available until the user purges or prunes them.
+7. Purging a node also purges all descendants and never removes the active node.
+8. `rim prune` keeps only the active node in the current root.
+9. `rim prune --all` keeps only the active node across the repository scope.
+10. Git stores durable project history. Rim stores ephemeral solution search.
+11. A Git origin identifies provenance but does not store the Rim base.
+12. Git does not store Rim state, and Rim does not store Git status.
+13. Git and standalone modes expose the same Rim tree operations.

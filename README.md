@@ -36,7 +36,7 @@ Git branch:
     assumed valuable until deliberately deleted
 
 Rim node:
-    assumed temporary until deliberately kept or purged
+    assumed temporary until deliberately kept or removed
 ```
 
 ```text
@@ -114,6 +114,7 @@ determines the applicable Rim root and its active node. If the commit changes,
 Rim uses the root for the new commit or creates one on the next spawn. Outside
 Git, the first spawn creates the base node from the current project state.
 `rim init` can create the same base node explicitly without spawning a child.
+In standalone mode, `rim init --new` starts another root from the current state.
 
 Rim copies each base state into its own `.rim/` storage. A Git commit ID records
 where a root came from, but the root does not depend on that Git object
@@ -124,8 +125,8 @@ does not use Git status as its own status.
 ## Proposed command set
 
 ```bash
-# Explicitly create a base node for the current Git commit or project state
-rim init
+# Create a base node explicitly; --new starts another standalone root
+rim init [--new]
 
 # Create child nodes from the active node
 rim spawn [--tag <name>] [--fan-out <n>]
@@ -136,11 +137,14 @@ rim punch [-m <message>]
 # Switch to another node
 rim switch <node-id>
 
-# Delete one node and all descendants
+# Delete one inactive node and all descendants
 rim purge <node-id>
 
-# Keep the active node and its ancestors; delete all other nodes
-rim purge --all
+# Keep only the active node in the current root
+rim prune
+
+# Keep only the active node across the complete repository
+rim prune --all
 ```
 
 Read operations expose the tree without changing it:
@@ -166,4 +170,9 @@ for long-term source control.
 ## Project status
 
 Rim is currently in the design stage. The product model is documented in
-[`PRODUCT.md`](PRODUCT.md).
+[`PRODUCT.md`](PRODUCT.md). Confirmed implementation decisions are documented
+in [`SPECS.md`](SPECS.md).
+
+## License
+
+Rim is available under the [MIT License](LICENSE).
