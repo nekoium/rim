@@ -1,6 +1,8 @@
 # Rim
 
-> Rim is the ethereal version manager that sits between your agent and the next git commit.
+> Rim is an ethereal version manager that sits between your agent and the next git commit.
+
+Concerned that the AI might ruin your design, tired to manage the branches for every direction you want to try, or don't want git commits to be flooded with slop code? Well, then rim is for you.
 
 ## The problem
 
